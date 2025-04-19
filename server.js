@@ -8,7 +8,7 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors()); // Allow frontend to call API
+app.use(cors());
 app.use(bodyParser.json());
 
 const youtube = google.youtube({
@@ -16,7 +16,6 @@ const youtube = google.youtube({
   auth: process.env.YT_API_KEY,
 });
 
-// Simple virality score calculator
 function estimateVirality(trendScore, viewsAvg) {
   return Math.min(10, ((trendScore / 100) * 5 + (viewsAvg / 1000000) * 5)).toFixed(1);
 }
@@ -28,7 +27,6 @@ app.post('/api/ideas', async (req, res) => {
       return res.status(400).json({ error: 'No URL provided' });
     }
 
-    // Extract channel ID
     const channelId = url.split('/').pop().replace('@', '');
     const channelData = await youtube.search.list({
       part: 'snippet',
@@ -43,7 +41,6 @@ app.post('/api/ideas', async (req, res) => {
 
     const realChannelId = channelData.data.items[0].id.channelId;
 
-    // Get top videos
     const videos = await youtube.search.list({
       part: 'snippet',
       channelId: realChannelId,
@@ -54,7 +51,6 @@ app.post('/api/ideas', async (req, res) => {
     const titles = videos.data.items.map((v) => v.snippet.title);
     const keywords = [...new Set(titles.flatMap((t) => t.split(' ')))].slice(0, 5);
 
-    // Get trends
     let topTrends = [];
     try {
       const trends = await googleTrends.relatedQueries({ keyword: keywords[0] });
@@ -62,10 +58,9 @@ app.post('/api/ideas', async (req, res) => {
         .slice(0, 3)
         .map((t) => t.query);
     } catch (trendError) {
-      topTrends = keywords.slice(0, 3); // Fallback to keywords if trends fail
+      topTrends = keywords.slice(0, 3);
     }
 
-    // Generate ideas
     const ideas = topTrends.map((trend, i) => ({
       title: `🔥 ${trend.charAt(0).toUpperCase() + trend.slice(1)} - Short #${i + 1}`,
       score: estimateVirality(90 - i * 15, 800000 + i * 50000),
