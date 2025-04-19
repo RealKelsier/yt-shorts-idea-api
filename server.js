@@ -482,3 +482,17 @@ app.post('/api/ideas', async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+  const lowerDescription = description.toLowerCase();
+  for (let niche in niches) {
+    niches[niche].forEach((keyword) => {
+      if (lowerDescription.includes(keyword)) {
+        nicheScores[niche] += 2; // Give extra weight to description matches
+      }
+    });
+  }
+
+  // Determine the niche with the highest score
+  const sortedNiches = Object.entries(nicheScores).sort((a, b) => b[1] - a[1]);
+  return sortedNiches[0][1] > 0 ? sortedNiches[0][0] : 'default';
+}
+
