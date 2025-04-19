@@ -262,7 +262,7 @@ function determineNiche(keywords, titles, description) {
 }
 
 // Function to determine the channel's video type (enhanced to include descriptions and tags)
-async function determineVideoType(channelId, titles) {
+async function determineVideoType(videos, titles) {
   let typeScores = {
     challenge: 0,
     giveaway: 0,
@@ -274,7 +274,7 @@ async function determineVideoType(channelId, titles) {
   // Fetch video details (including descriptions and tags)
   const videoDetails = await youtube.videos.list({
     part: 'snippet',
-    id: titles.map((_, i) => videos.data.items[i].id.videoId).join(','),
+    id: videos.map((v) => v.id.videoId).join(','),
   });
 
   const descriptions = videoDetails.data.items.map((v) => v.snippet.description || '');
@@ -396,89 +396,4 @@ app.post('/api/ideas', async (req, res) => {
       .filter((word) => !stopWords.includes(word) && word.length > 3)
       .sort((a, b) => allWords.filter((w) => w === b).length - allWords.filter((w) => w === a).length);
 
-    const biGrams = titles.flatMap((t) => extractNGrams(t, 2));
-    const triGrams = titles.flatMap((t) => extractNGrams(t, 3));
-
-    const keywords = [...new Set([...triGrams, ...biGrams, ...singleWords])].slice(0, 10);
-
-    if (!keywords.length) {
-      return res.status(500).json({ error: 'Could not extract meaningful keywords' });
-    }
-
-    // Determine the channel's niche
-    const nicheFromKeywords = determineNiche(keywords, titles, channelDescription);
-    const nicheFromCategory = mapCategoryToNiche(categoryId);
-    const niche = nicheFromKeywords !== 'default' ? nicheFromKeywords : nicheFromCategory;
-    console.log(`Detected niche: ${niche}, Keywords: ${keywords.join(', ')}`);
-
-    // Determine the channel's video type
-    const videoType = await determineVideoType(realChannelId, titles);
-    console.log(`Detected video type: ${videoType}`);
-
-    // Fetch trending topics from Google Trends (using dailyTrends for real-time trends)
-    let trendingTopics = [];
-    try {
-      const trends = await googleTrends.dailyTrends({ geo: 'US' });
-      const trendData = JSON.parse(trends).default.trendingSearchesDays[0].trendingSearches;
-      trendingTopics = trendData.map((t) => t.title.query).slice(0, 10);
-    } catch (trendError) {
-      console.error('Google Trends error:', trendError);
-      trendingTopics = keywords.slice(0, 10);
-    }
-
-    // Fetch trending videos from YouTube in the same category
-    let youtubeTrendingTopics = [];
-    try {
-      const trendingVideos = await youtube.videos.list({
-        part: 'snippet',
-        chart: 'mostPopular',
-        videoCategoryId: categoryId,
-        maxResults: 10,
-      });
-      youtubeTrendingTopics = trendingVideos.data.items.map((v) => {
-        const titleWords = v.snippet.title.split(' ').filter((w) => !stopWords.includes(w.toLowerCase())).join(' ');
-        const descWords = v.snippet.description.split(' ').slice(0, 10).filter((w) => !stopWords.includes(w.toLowerCase())).join(' ');
-        return `${titleWords} ${descWords}`.trim();
-      });
-    } catch (youtubeError) {
-      console.error('YouTube Trending error:', youtubeError);
-      youtubeTrendingTopics = [];
-    }
-
-    // Combine trending topics
-    let allTrendingTopics = [...new Set([...trendingTopics, ...youtubeTrendingTopics])];
-
-    // Filter out topics that are too similar to the channel's existing content
-    const channelContent = [...titles, channelDescription].join(' ').toLowerCase();
-    allTrendingTopics = allTrendingTopics.filter((topic) => {
-      const similarity = calculateSimilarity(topic, channelContent);
-      return similarity < 0.5; // Keep topics with less than 50% overlap
-    }).slice(0, 10);
-
-    if (!allTrendingTopics.length) {
-      return res.status(500).json({ error: 'Could not fetch unique trending topics' });
-    }
-
-    // Generate a pool of ideas using the video type and trending topics
-    const templates = ideaTemplates[niche]?.[videoType] || ideaTemplates.default[videoType] || ideaTemplates.default.vlog;
-    let ideaPool = allTrendingTopics.map((topic, i) => {
-      const template = templates[i % templates.length];
-      const title = template.replace('${trendingTopic}', topic.charAt(0).toUpperCase() + topic.slice(1));
-      return {
-        title: `🔥 ${title}`,
-        score: estimateVirality(90 - i * 10, 800000 + i * 50000),
-      };
-    });
-
-    // Shuffle and pick 5 ideas
-    ideaPool = shuffleArray(ideaPool);
-    const ideas = ideaPool.slice(0, 5);
-
-    res.json({ ideas });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Something went wrong' });
-  }
-});
-
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+    const biGrams = titles.flatMap((t) => extract
