@@ -26,33 +26,62 @@ const niches = {
   gaming: ['game', 'gaming', 'minecraft', 'fortnite', 'play', 'stream', 'esports'],
 };
 
-// Idea templates by niche
+// Expanded idea templates by niche
 const ideaTemplates = {
   finance: [
     "How to Make Money as a {keyword} in 2025",
     "Top 5 {keyword} Hacks for Beginners",
     "{keyword} Challenge: Can You Save $100 in a Week?",
+    "Why {keyword} is the Best Side Hustle",
+    "How I Made $1,000 with {keyword}",
+    "Ultimate {keyword} Guide for Teens",
+    "{keyword} Mistakes to Avoid",
+    "Can {keyword} Make You Rich?",
   ],
   entertainment: [
     "$1 vs $1,000 {keyword} Challenge",
     "24-Hour {keyword} Survival Challenge",
     "I Tried a Viral {keyword} Stunt!",
+    "Last to Leave {keyword} Wins $10,000",
+    "Extreme {keyword} Prank Gone Wrong",
+    "{keyword} Challenge with Zero Budget",
+    "I Survived a {keyword} for 48 Hours",
+    "Trying the Craziest {keyword} Trends",
   ],
   gaming: [
     "Can I Win in {keyword} Without Dying?",
     "Ultimate {keyword} Challenge for Noobs",
     "I Played {keyword} for 24 Hours Straight!",
+    "Beating {keyword} with the Worst Gear",
+    "{keyword} Speedrun: Can I Set a Record?",
+    "Trying {keyword} Hacks from TikTok",
+    "I Built a {keyword} Empire in One Day",
+    "{keyword} Tournament: Winner Takes All",
   ],
   default: [
     "Why {keyword} is Going Viral in 2025",
     "Top 3 {keyword} Tips for Beginners",
     "{keyword} Challenge: Can You Do It?",
+    "I Tried {keyword} for the First Time",
+    "How to Master {keyword} in a Day",
+    "Secrets of {keyword} You Need to Know",
+    "Is {keyword} the Next Big Thing?",
+    "Trying Viral {keyword} Hacks",
   ],
 };
 
 // Function to estimate virality score
 function estimateVirality(trendScore, viewsAvg) {
   return Math.min(10, ((trendScore / 100) * 5 + (viewsAvg / 1000000) * 5)).toFixed(1);
+}
+
+// Function to shuffle array (Fisher-Yates shuffle)
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
 }
 
 // Function to determine the channel's niche
@@ -71,7 +100,6 @@ function determineNiche(keywords, titles) {
     }
   });
 
-  // Also check titles for niche-specific keywords
   titles.forEach((title) => {
     const lowerTitle = title.toLowerCase();
     for (let niche in niches) {
@@ -83,7 +111,6 @@ function determineNiche(keywords, titles) {
     }
   });
 
-  // Determine the niche with the highest score
   let maxScore = 0;
   let detectedNiche = 'default';
   for (let niche in nicheScores) {
@@ -103,10 +130,8 @@ app.post('/api/ideas', async (req, res) => {
       return res.status(400).json({ error: 'No URL provided' });
     }
 
-    // Extract channel ID from URL
     const channelId = url.split('/').pop().replace('@', '');
 
-    // Fetch channel details
     const channelData = await youtube.search.list({
       part: 'snippet',
       q: channelId,
@@ -120,7 +145,6 @@ app.post('/api/ideas', async (req, res) => {
 
     const realChannelId = channelData.data.items[0].id.channelId;
 
-    // Fetch more videos to get better keywords (up to 20)
     const videos = await youtube.search.list({
       part: 'snippet',
       channelId: realChannelId,
@@ -128,46 +152,47 @@ app.post('/api/ideas', async (req, res) => {
       order: 'viewCount',
     });
 
-    // Extract video titles
     const titles = videos.data.items.map((v) => v.snippet.title);
 
-    // Extract keywords from titles
     const allWords = titles.flatMap((t) => t.split(' ').map((w) => w.toLowerCase()));
     const keywords = [...new Set(allWords)]
-      .filter((word) => !stopWords.includes(word) && word.length > 3) // Filter out stop words and short words
-      .sort((a, b) => allWords.filter((w) => w === b).length - allWords.filter((w) => w === a).length) // Sort by frequency
-      .slice(0, 5); // Take top 5 keywords
+      .filter((word) => !stopWords.includes(word) && word.length > 3)
+      .sort((a, b) => allWords.filter((w) => w === b).length - allWords.filter((w) => w === a).length)
+      .slice(0, 5);
 
     if (!keywords.length) {
       return res.status(500).json({ error: 'Could not extract meaningful keywords' });
     }
 
-    // Determine the channel's niche
     const niche = determineNiche(keywords, titles);
     console.log(`Detected niche: ${niche}`);
 
-    // Fetch related trends for the top keyword
+    // Fetch more related trends (up to 10) for a larger pool
     let topTrends = [];
     try {
       const trends = await googleTrends.relatedQueries({ keyword: keywords[0] });
       topTrends = JSON.parse(trends).default.rankedList[0].rankedKeyword
-        .slice(0, 3)
+        .slice(0, 10)
         .map((t) => t.query);
     } catch (trendError) {
       console.error('Trends error:', trendError);
-      topTrends = keywords.slice(0, 3);
+      topTrends = keywords.slice(0, 10);
     }
 
-    // Generate ideas using niche-specific templates
+    // Generate a larger pool of ideas
     const templates = ideaTemplates[niche] || ideaTemplates.default;
-    const ideas = topTrends.map((trend, i) => {
+    let ideaPool = topTrends.map((trend, i) => {
       const template = templates[i % templates.length];
       const title = template.replace('{keyword}', trend.charAt(0).toUpperCase() + trend.slice(1));
       return {
         title: `🔥 ${title}`,
-        score: estimateVirality(90 - i * 15, 800000 + i * 50000),
+        score: estimateVirality(90 - i * 10, 800000 + i * 50000),
       };
     });
+
+    // Shuffle the idea pool and pick 5 ideas
+    ideaPool = shuffleArray(ideaPool);
+    const ideas = ideaPool.slice(0, 5);
 
     res.json({ ideas });
   } catch (error) {
