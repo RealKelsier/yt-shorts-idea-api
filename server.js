@@ -367,23 +367,55 @@ function calculateSimilarity(str1, str2) {
   return intersection.length / Math.min(words1.size, words2.size);
 }
 
-// Function to parse YouTube channel URL
-function parseChannelId(url) {
+// Function to parse YouTube channel URL with fallback
+async function parseChannelId(url) {
   try {
     const urlObj = new URL(url);
     const pathParts = urlObj.pathname.split('/').filter((part) => part);
 
-    // Handle different URL formats
+    // Handle known URL formats
     if (pathParts[0] === 'channel') {
       return pathParts[1]; // e.g., /channel/UC...
-    } else if (pathParts[0] === 'c' || pathParts[0] === '@') {
-      return pathParts[0].startsWith('@') ? pathParts[0].replace('@', '') : pathParts[1];
-    } else {
-      throw new Error('Invalid YouTube channel URL format');
+    } else if (pathParts[0].startsWith('@')) {
+      return pathParts[0].replace('@', ''); // e.g., /@handle
+    } else if (pathParts[0] === 'c' || pathParts[0] === 'user') {
+      return pathParts[1]; // e.g., /c/customName or /user/username
     }
+
+    // Fallback: Extract potential handle or custom name from path
+    let potentialHandle = pathParts[0].startsWith('@') ? pathParts[0].replace('@', '') : pathParts[0];
+    if (!potentialHandle) {
+      throw new Error('No recognizable channel identifier in URL');
+    }
+
+    // Try to fetch channel by handle
+    console.log(`Attempting to fetch channel by handle: ${potentialHandle}`);
+    let channelData = await youtube.channels.list({
+      part: 'id',
+      forHandle: `@${potentialHandle}`,
+    });
+
+    if (channelData.data.items && channelData.data.items.length > 0) {
+      return channelData.data.items[0].id;
+    }
+
+    // Fallback: Search for the channel using the potential handle/custom name
+    console.log(`Handle lookup failed, searching for channel: ${potentialHandle}`);
+    const searchResponse = await youtube.search.list({
+      part: 'snippet',
+      q: potentialHandle,
+      type: 'channel',
+      maxResults: 1,
+    });
+
+    if (searchResponse.data.items && searchResponse.data.items.length > 0) {
+      return searchResponse.data.items[0].snippet.channelId;
+    }
+
+    throw new Error('Channel not found');
   } catch (error) {
     console.error('Error parsing channel URL:', error.message);
-    throw new Error('Invalid YouTube channel URL');
+    throw new Error(`Failed to extract channel ID: ${error.message}`);
   }
 }
 
@@ -395,15 +427,15 @@ app.post('/api/ideas', async (req, res) => {
     }
 
     // Parse channel ID from URL
-    const channelId = parseChannelId(url);
-    console.log(`Parsed channel ID: ${channelId}`);
+    const channelId = await parseChannelId(url);
+    console.log(`Resolved channel ID: ${channelId}`);
 
     // Fetch channel details (including description and category)
     let channelData;
     try {
       channelData = await youtube.channels.list({
         part: 'snippet,contentDetails,statistics,topicDetails',
-        forHandle: `@${channelId}`,
+        id: channelId,
       });
     } catch (channelError) {
       console.error('Error fetching channel data:', channelError.message);
