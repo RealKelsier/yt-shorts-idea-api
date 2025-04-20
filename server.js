@@ -244,21 +244,14 @@ function determineNiche(keywords, titles, description) {
   for (let niche in niches) {
     niches[niche].forEach((keyword) => {
       if (lowerDescription.includes(keyword)) {
-        nicheScores[niche] += 2;
+        nicheScores[niche] += 2; // Give extra weight to description matches
       }
     });
-  });
-
-  let maxScore = 0;
-  let detectedNiche = 'default';
-  for (let niche in nicheScores) {
-    if (nicheScores[niche] > maxScore) {
-      maxScore = nicheScores[niche];
-      detectedNiche = niche;
-    }
   }
 
-  return detectedNiche;
+  // Determine the niche with the highest score
+  const sortedNiches = Object.entries(nicheScores).sort((a, b) => b[1] - a[1]);
+  return sortedNiches[0][1] > 0 ? sortedNiches[0][0] : 'default';
 }
 
 // Function to determine the channel's video type (enhanced to include descriptions and tags)
@@ -482,17 +475,4 @@ app.post('/api/ideas', async (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
-  const lowerDescription = description.toLowerCase();
-  for (let niche in niches) {
-    niches[niche].forEach((keyword) => {
-      if (lowerDescription.includes(keyword)) {
-        nicheScores[niche] += 2; // Give extra weight to description matches
-      }
-    });
-  }
-
-  // Determine the niche with the highest score
-  const sortedNiches = Object.entries(nicheScores).sort((a, b) => b[1] - a[1]);
-  return sortedNiches[0][1] > 0 ? sortedNiches[0][0] : 'default';
-}
 
