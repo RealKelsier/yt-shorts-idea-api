@@ -367,19 +367,76 @@ function calculateSimilarity(str1, str2) {
   return intersection.length / Math.min(words1.size, words2.size);
 }
 
-// Function to parse YouTube channel URL with fallback
+// Function to parse YouTube channel URL with enhanced fallback
 async function parseChannelId(url) {
   try {
+    // Basic URL validation
+    if (!url || !url.startsWith('https://') || !url.includes('youtube.com')) {
+      throw new Error('Invalid URL: Must be a valid YouTube URL starting with https://');
+    }
+
     const urlObj = new URL(url);
     const pathParts = urlObj.pathname.split('/').filter((part) => part);
+    const queryParams = new URLSearchParams(urlObj.search);
 
-    // Handle known URL formats
+    // Handle known channel URL formats
     if (pathParts[0] === 'channel') {
       return pathParts[1]; // e.g., /channel/UC...
     } else if (pathParts[0].startsWith('@')) {
       return pathParts[0].replace('@', ''); // e.g., /@handle
     } else if (pathParts[0] === 'c' || pathParts[0] === 'user') {
       return pathParts[1]; // e.g., /c/customName or /user/username
+    }
+
+    // Handle video URLs (e.g., /watch?v=videoId)
+    if (pathParts[0] === 'watch' && queryParams.has('v')) {
+      const videoId = queryParams.get('v');
+      console.log(`Extracted video ID: ${videoId}, fetching video details...`);
+      const videoResponse = await youtube.videos.list({
+        part: 'snippet',
+        id: videoId,
+      });
+
+      if (videoResponse.data.items && videoResponse.data.items.length > 0) {
+        const channelId = videoResponse.data.items[0].snippet.channelId;
+        console.log(`Resolved channel ID from video: ${channelId}`);
+        return channelId;
+      }
+      throw new Error('Video not found or channel inaccessible');
+    }
+
+    // Handle Shorts URLs (e.g., /shorts/videoId)
+    if (pathParts[0] === 'shorts' && pathParts[1]) {
+      const videoId = pathParts[1];
+      console.log(`Extracted shorts video ID: ${videoId}, fetching video details...`);
+      const videoResponse = await youtube.videos.list({
+        part: 'snippet',
+        id: videoId,
+      });
+
+      if (videoResponse.data.items && videoResponse.data.items.length > 0) {
+        const channelId = videoResponse.data.items[0].snippet.channelId;
+        console.log(`Resolved channel ID from shorts: ${channelId}`);
+        return channelId;
+      }
+      throw new Error('Shorts video not found or channel inaccessible');
+    }
+
+    // Handle playlist URLs (e.g., /playlist?list=playlistId)
+    if (pathParts[0] === 'playlist' && queryParams.has('list')) {
+      const playlistId = queryParams.get('list');
+      console.log(`Extracted playlist ID: ${playlistId}, fetching playlist details...`);
+      const playlistResponse = await youtube.playlists.list({
+        part: 'snippet',
+        id: playlistId,
+      });
+
+      if (playlistResponse.data.items && playlistResponse.data.items.length > 0) {
+        const channelId = playlistResponse.data.items[0].snippet.channelId;
+        console.log(`Resolved channel ID from playlist: ${channelId}`);
+        return channelId;
+      }
+      throw new Error('Playlist not found or channel inaccessible');
     }
 
     // Fallback: Extract potential handle or custom name from path
@@ -412,7 +469,7 @@ async function parseChannelId(url) {
       return searchResponse.data.items[0].snippet.channelId;
     }
 
-    throw new Error('Channel not found');
+    throw new Error('Channel not found after exhaustive search');
   } catch (error) {
     console.error('Error parsing channel URL:', error.message);
     throw new Error(`Failed to extract channel ID: ${error.message}`);
