@@ -414,9 +414,10 @@ app.post('/api/ideas', async (req, res) => {
       const trends = await googleTrends.dailyTrends({ geo: 'US' });
       const trendData = JSON.parse(trends).default.trendingSearchesDays[0].trendingSearches;
       trendingTopics = trendData.map((t) => t.title.query).slice(0, 10);
+      console.log('Google Trends topics:', trendingTopics);
     } catch (trendError) {
-      console.error('Google Trends error:', trendError);
-      trendingTopics = keywords.slice(0, 10);
+      console.error('Google Trends error:', trendError.message);
+      trendingTopics = keywords.slice(0, 10); // Fallback to channel keywords
     }
 
     // Fetch trending videos from YouTube in the same category
@@ -433,23 +434,30 @@ app.post('/api/ideas', async (req, res) => {
         const descWords = v.snippet.description.split(' ').slice(0, 10).filter((w) => !stopWords.includes(w.toLowerCase())).join(' ');
         return `${titleWords} ${descWords}`.trim();
       });
+      console.log('YouTube Trending topics:', youtubeTrendingTopics);
     } catch (youtubeError) {
-      console.error('YouTube Trending error:', youtubeError);
+      console.error('YouTube Trending error:', youtubeError.message);
       youtubeTrendingTopics = [];
     }
 
     // Combine trending topics
     let allTrendingTopics = [...new Set([...trendingTopics, ...youtubeTrendingTopics])];
+    console.log('Combined trending topics before filtering:', allTrendingTopics);
 
     // Filter out topics that are too similar to the channel's existing content
     const channelContent = [...titles, channelDescription].join(' ').toLowerCase();
     allTrendingTopics = allTrendingTopics.filter((topic) => {
       const similarity = calculateSimilarity(topic, channelContent);
-      return similarity < 0.5; // Keep topics with less than 50% overlap
+      console.log(`Similarity between "${topic}" and channel content: ${similarity}`);
+      return similarity < 0.3; // Lowered threshold to allow more topics
     }).slice(0, 10);
 
+    console.log('Trending topics after filtering:', allTrendingTopics);
+
+    // Fallback if no trending topics are available after filtering
     if (!allTrendingTopics.length) {
-      return res.status(500).json({ error: 'Could not fetch unique trending topics' });
+      console.log('No unique trending topics found, falling back to channel keywords');
+      allTrendingTopics = keywords.slice(0, 5); // Use channel keywords as a fallback
     }
 
     // Generate a pool of ideas using the video type and trending topics
@@ -469,7 +477,7 @@ app.post('/api/ideas', async (req, res) => {
 
     res.json({ ideas });
   } catch (error) {
-    console.error(error);
+    console.error('API error:', error.message);
     res.status(500).json({ error: 'Something went wrong' });
   }
 });
