@@ -183,6 +183,20 @@ const ideaTemplates = {
   },
 };
 
+// Mock trending topics as a last resort
+const mockTrendingTopics = [
+  'viral challenge',
+  'new tech gadget',
+  'gaming tournament',
+  'finance tips',
+  'lifestyle hack',
+  'trending meme',
+  'popular game update',
+  'celebrity news',
+  'diy project',
+  'fitness trend',
+];
+
 // Function to estimate virality score
 function estimateVirality(trendScore, viewsAvg) {
   return Math.min(10, ((trendScore / 100) * 5 + (viewsAvg / 1000000) * 5)).toFixed(1);
@@ -264,50 +278,54 @@ async function determineVideoType(videos, titles) {
     review: 0,
   };
 
-  // Fetch video details (including descriptions and tags)
-  const videoDetails = await youtube.videos.list({
-    part: 'snippet',
-    id: videos.map((v) => v.id.videoId).join(','),
-  });
+  try {
+    // Fetch video details (including descriptions and tags)
+    const videoDetails = await youtube.videos.list({
+      part: 'snippet',
+      id: videos.map((v) => v.id.videoId).join(','),
+    });
 
-  const descriptions = videoDetails.data.items.map((v) => v.snippet.description || '');
-  const tags = videoDetails.data.items.flatMap((v) => v.snippet.tags || []);
+    const descriptions = videoDetails.data.items.map((v) => v.snippet.description || '');
+    const tags = videoDetails.data.items.flatMap((v) => v.snippet.tags || []);
 
-  // Score based on titles
-  titles.forEach((title) => {
-    const lowerTitle = title.toLowerCase();
-    for (let type in videoTypes) {
-      videoTypes[type].forEach((keyword) => {
-        if (lowerTitle.includes(keyword)) {
-          typeScores[type]++;
-        }
-      });
-    }
-  });
+    // Score based on titles
+    titles.forEach((title) => {
+      const lowerTitle = title.toLowerCase();
+      for (let type in videoTypes) {
+        videoTypes[type].forEach((keyword) => {
+          if (lowerTitle.includes(keyword)) {
+            typeScores[type]++;
+          }
+        });
+      }
+    });
 
-  // Score based on descriptions
-  descriptions.forEach((desc) => {
-    const lowerDesc = desc.toLowerCase();
-    for (let type in videoTypes) {
-      videoTypes[type].forEach((keyword) => {
-        if (lowerDesc.includes(keyword)) {
-          typeScores[type]++;
-        }
-      });
-    }
-  });
+    // Score based on descriptions
+    descriptions.forEach((desc) => {
+      const lowerDesc = desc.toLowerCase();
+      for (let type in videoTypes) {
+        videoTypes[type].forEach((keyword) => {
+          if (lowerDesc.includes(keyword)) {
+            typeScores[type]++;
+          }
+        });
+      }
+    });
 
-  // Score based on tags
-  tags.forEach((tag) => {
-    const lowerTag = tag.toLowerCase();
-    for (let type in videoTypes) {
-      videoTypes[type].forEach((keyword) => {
-        if (lowerTag.includes(keyword)) {
-          typeScores[type]++;
-        }
-      });
-    }
-  });
+    // Score based on tags
+    tags.forEach((tag) => {
+      const lowerTag = tag.toLowerCase();
+      for (let type in videoTypes) {
+        videoTypes[type].forEach((keyword) => {
+          if (lowerTag.includes(keyword)) {
+            typeScores[type]++;
+          }
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Error determining video type:', error.message);
+  }
 
   let maxScore = 0;
   let detectedType = 'vlog'; // Default to vlog if no clear type is detected
@@ -349,6 +367,26 @@ function calculateSimilarity(str1, str2) {
   return intersection.length / Math.min(words1.size, words2.size);
 }
 
+// Function to parse YouTube channel URL
+function parseChannelId(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split('/').filter((part) => part);
+
+    // Handle different URL formats
+    if (pathParts[0] === 'channel') {
+      return pathParts[1]; // e.g., /channel/UC...
+    } else if (pathParts[0] === 'c' || pathParts[0] === '@') {
+      return pathParts[0].startsWith('@') ? pathParts[0].replace('@', '') : pathParts[1];
+    } else {
+      throw new Error('Invalid YouTube channel URL format');
+    }
+  } catch (error) {
+    console.error('Error parsing channel URL:', error.message);
+    throw new Error('Invalid YouTube channel URL');
+  }
+}
+
 app.post('/api/ideas', async (req, res) => {
   try {
     const { url } = req.body;
@@ -356,13 +394,21 @@ app.post('/api/ideas', async (req, res) => {
       return res.status(400).json({ error: 'No URL provided' });
     }
 
-    const channelId = url.split('/').pop().replace('@', '');
+    // Parse channel ID from URL
+    const channelId = parseChannelId(url);
+    console.log(`Parsed channel ID: ${channelId}`);
 
     // Fetch channel details (including description and category)
-    const channelData = await youtube.channels.list({
-      part: 'snippet,contentDetails,statistics,topicDetails',
-      forHandle: `@${channelId}`,
-    });
+    let channelData;
+    try {
+      channelData = await youtube.channels.list({
+        part: 'snippet,contentDetails,statistics,topicDetails',
+        forHandle: `@${channelId}`,
+      });
+    } catch (channelError) {
+      console.error('Error fetching channel data:', channelError.message);
+      return res.status(500).json({ error: 'Failed to fetch channel data. Check API key or quota.' });
+    }
 
     if (!channelData.data.items || channelData.data.items.length === 0) {
       return res.status(404).json({ error: 'Channel not found' });
@@ -373,14 +419,24 @@ app.post('/api/ideas', async (req, res) => {
     const categoryId = channelData.data.items[0].topicDetails?.topicCategories?.[0]?.split('/').pop() || '24'; // Default to Entertainment
 
     // Fetch videos to extract titles
-    const videosResponse = await youtube.search.list({
-      part: 'snippet',
-      channelId: realChannelId,
-      maxResults: 20,
-      order: 'viewCount',
-    });
+    let videosResponse;
+    try {
+      videosResponse = await youtube.search.list({
+        part: 'snippet',
+        channelId: realChannelId,
+        maxResults: 20,
+        order: 'viewCount',
+      });
+    } catch (videoError) {
+      console.error('Error fetching videos:', videoError.message);
+      return res.status(500).json({ error: 'Failed to fetch videos. Check API key or quota.' });
+    }
 
     const videos = videosResponse.data.items;
+    if (!videos || videos.length === 0) {
+      return res.status(404).json({ error: 'No videos found for this channel' });
+    }
+
     const titles = videos.map((v) => v.snippet.title);
 
     // Extract keywords (single words, bi-grams, tri-grams)
@@ -456,8 +512,8 @@ app.post('/api/ideas', async (req, res) => {
 
     // Fallback if no trending topics are available after filtering
     if (!allTrendingTopics.length) {
-      console.log('No unique trending topics found, falling back to channel keywords');
-      allTrendingTopics = keywords.slice(0, 5); // Use channel keywords as a fallback
+      console.log('No unique trending topics found, using mock trending topics');
+      allTrendingTopics = mockTrendingTopics.slice(0, 5); // Use mock topics as a last resort
     }
 
     // Generate a pool of ideas using the video type and trending topics
@@ -478,7 +534,7 @@ app.post('/api/ideas', async (req, res) => {
     res.json({ ideas });
   } catch (error) {
     console.error('API error:', error.message);
-    res.status(500).json({ error: 'Something went wrong' });
+    res.status(500).json({ error: error.message || 'Something went wrong' });
   }
 });
 
